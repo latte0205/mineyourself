@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>調色盤場景預覽</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;font-family:'Courier New',monospace;padding:20px;color:#fff}
+h1{text-align:center;margin:10px 0 20px;font-size:18px;color:#aaa}
+.palettes{display:flex;flex-wrap:wrap;gap:24px;justify-content:center}
+.palette{background:#1a1a2e;border-radius:12px;padding:16px;width:600px;cursor:pointer;transition:transform .15s,box-shadow .15s}
+.palette:hover{transform:scale(1.02);box-shadow:0 0 20px rgba(255,255,255,.1)}
+.palette h2{font-size:18px;margin-bottom:8px;text-align:center;letter-spacing:1px}
+canvas{display:block;margin:0 auto;border-radius:8px;width:100%;height:auto;image-rendering:pixelated;background:#000}
+.desc{font-size:12px;color:#888;text-align:center;margin-top:8px;line-height:1.6}
+</style>
+</head>
+<body>
+<h1>🎨 選擇場景風格 — 點擊挑選</h1>
+<div class="palettes" id="root"></div>
+<script>
+const PALETTES = [
+  {
+    name: '🌅 暖橘夕陽',
+    bg: '#8a5a3a',
+    block: {
+      grass: { top:'#d4a56a', left:'#b8854a', right:'#8a6530' },
+      dirt:  { top:'#c4956a', left:'#a8754a', right:'#7a5530' },
+      stone: { top:'#b0a090', left:'#908070', right:'#605040' },
+      wood:  { top:'#c8a060', left:'#a88040', right:'#705020' },
+      leaf:  { top:'#b0c080', left:'#90a060', right:'#607040' },
+    },
+    desc: '暖橘色系，夕陽光感，柔和舒適'
+  },
+  {
+    name: '🌸 粉彩馬卡龍',
+    bg: '#3a3050',
+    block: {
+      grass: { top:'#c5e0c0', left:'#a5c8a0', right:'#75a870' },
+      dirt:  { top:'#d4c4a8', left:'#c4b498', right:'#a49478' },
+      stone: { top:'#c8c0d0', left:'#b8b0c0', right:'#9890a0' },
+      wood:  { top:'#e0c8a8', left:'#d0b898', right:'#b09878' },
+      leaf:  { top:'#e0d0f0', left:'#d0c0e0', right:'#b0a0c0' },
+    },
+    desc: '粉嫩色系，輕柔療癒，馬卡龍色調'
+  },
+  {
+    name: '🟡 復古暖黃',
+    bg: '#5a4a28',
+    block: {
+      grass: { top:'#c8b070', left:'#a89050', right:'#786830' },
+      dirt:  { top:'#b8a070', left:'#988050', right:'#685830' },
+      stone: { top:'#a09878', left:'#807858', right:'#504838' },
+      wood:  { top:'#c0a060', left:'#a08040', right:'#705020' },
+      leaf:  { top:'#a8b070', left:'#889050', right:'#586030' },
+    },
+    desc: '舊照片暖色調，復古懷舊氛圍'
+  },
+  {
+    name: '🌿 森系墨綠',
+    bg: '#2a3a1a',
+    block: {
+      grass: { top:'#5a8a3a', left:'#4a7a2a', right:'#2a5a1a' },
+      dirt:  { top:'#7a6a3a', left:'#6a5a2a', right:'#4a3a1a' },
+      stone: { top:'#6a7a6a', left:'#5a6a5a', right:'#3a4a3a' },
+      wood:  { top:'#7a6a3a', left:'#6a5a2a', right:'#4a3a1a' },
+      leaf:  { top:'#3a6a2a', left:'#2a5a1a', right:'#1a3a0a' },
+    },
+    desc: '自然沉穩墨綠色系，森林感'
+  },
+  {
+    name: '🔵 暗色星空藍',
+    bg: '#1a1a3e',
+    block: {
+      grass: { top:'#5a7a8a', left:'#4a6a7a', right:'#2a4a5a' },
+      dirt:  { top:'#6a5a6a', left:'#5a4a5a', right:'#3a2a3a' },
+      stone: { top:'#6a6a8a', left:'#5a5a7a', right:'#3a3a5a' },
+      wood:  { top:'#6a5a4a', left:'#5a4a3a', right:'#3a2a1a' },
+      leaf:  { top:'#4a6a5a', left:'#3a5a4a', right:'#1a3a2a' },
+    },
+    desc: '深邃星空藍紫色調，神秘寧靜'
+  },
+];
+
+// === ISOMETRIC RENDERER ===
+const TW=40, TH=20;
+
+function hex(s){return parseInt(s.slice(1),16)}
+
+// Simple seeded random
+function rand(seed){let s=seed;s^=s<<13;s^=s>>17;s^=s<<5;return (s>>>0)/4294967296}
+function uhash(x,y){return rand((x*0x9E3779B9^y*0x85EBCA6B)>>>0)}
+
+function drawBlock(ctx, cx, cy, d, sz) {
+  const hw = sz * TW / 64;
+  const hh = sz * TH / 32;
+  const tcy = cy - sz * TH / 16;
+
+  // Right face
+  ctx.fillStyle = d.right;
+  ctx.beginPath();
+  ctx.moveTo(cx + hw, cy - hh);
+  ctx.lineTo(cx + hw, tcy - hh);
+  ctx.lineTo(cx, tcy);
+  ctx.lineTo(cx, cy);
+  ctx.closePath();
+  ctx.fill();
+
+  // Left face
+  ctx.fillStyle = d.left;
+  ctx.beginPath();
+  ctx.moveTo(cx - hw, cy - hh);
+  ctx.lineTo(cx - hw, tcy - hh);
+  ctx.lineTo(cx, tcy);
+  ctx.lineTo(cx, cy);
+  ctx.closePath();
+  ctx.fill();
+
+  // Top face
+  ctx.fillStyle = d.top;
+  ctx.beginPath();
+  ctx.moveTo(cx, tcy - hh);
+  ctx.lineTo(cx + hw, tcy);
+  ctx.lineTo(cx, tcy + hh);
+  ctx.lineTo(cx - hw, tcy);
+  ctx.closePath();
+  ctx.fill();
+
+  // Outline
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+}
+
+function renderScene(canvas, p) {
+  const W = 580, H = 435;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = p.bg;
+  ctx.fillRect(0, 0, W, H);
+
+  const SZ = 16;
+  const ox = W / 2, oy = H / 2 + 20;
+  const MS = 8;
+
+  // Terrain heights
+  const h = [];
+  for (let x = 0; x < MS; x++) {
+    h[x] = [];
+    for (let y = 0; y < MS; y++) {
+      h[x][y] = 2 + Math.floor(uhash(x, y) * 3);
+    }
+  }
+
+  const tx = 3, ty = 6;
+  const th = h[tx][ty];
+  const trunkH = 5;
+  const trunkTop = th + trunkH;
+
+  // Render depth-order
+  for (let z = 0; z < 10; z++) {
+    for (let sum = 0; sum <= MS * 2; sum++) {
+      for (let x = 0; x < MS; x++) {
+        const y = sum - x;
+        if (y < 0 || y >= MS) continue;
+
+        const sx = ox + (x - y) * TW * SZ / 128;
+        const sy = oy + ((x + y) * TH * SZ / 128) - z * TH * SZ / 32;
+
+        // Ground
+        if (z <= h[x][y]) {
+          let d;
+          if (z === h[x][y]) d = p.block.grass;
+          else if (z >= h[x][y] - 2) d = p.block.dirt;
+          else d = p.block.stone;
+          drawBlock(ctx, sx, sy, d, SZ);
+        }
+
+        // Tree trunk
+        if (x === tx && y === ty && z > th && z <= trunkTop) {
+          drawBlock(ctx, sx, sy, p.block.wood, SZ);
+        }
+
+        // Tree leaves
+        if (z >= trunkTop + 1 && z <= trunkTop + 2 &&
+            Math.abs(x - tx) <= 1 && Math.abs(y - ty) <= 1) {
+          drawBlock(ctx, sx, sy, p.block.leaf, SZ);
+        }
+      }
+    }
+  }
+
+  // Player character
+  const cx = MS / 2, cy = MS / 2;
+  const px = ox + (cx - cy) * TW * SZ / 128;
+  const py = oy + ((cx + cy) * TH * SZ / 128) - (h[Math.floor(cx)][Math.floor(cy)] + 1) * TH * SZ / 32;
+
+  const spr = [
+    [0,0,1,1,1,1,0,0],
+    [0,1,2,2,2,2,1,0],
+    [0,1,2,2,2,2,1,0],
+    [1,1,2,4,4,2,1,1],
+    [1,2,2,2,2,2,2,1],
+    [1,2,2,2,2,2,2,1],
+    [0,1,2,2,2,2,1,0],
+    [1,1,1,1,1,1,1,1],
+    [1,0,1,0,0,1,0,1],
+    [1,0,1,0,0,1,0,1],
+  ];
+  const pal = ['', '#1a3366', '#3355aa', '#5577cc', '#eebb99', '#fff'];
+  for (let r = 0; r < 10; r++) {
+    for (let c = 0; c < 8; c++) {
+      const idx = spr[r][c];
+      if (idx === 0) continue;
+      ctx.fillStyle = pal[idx];
+      ctx.fillRect(px - 8 + c * 2, py - 20 + r * 2, 2, 2);
+    }
+  }
+
+  // Edge shadow
+  const grd = ctx.createRadialGradient(W/2, H/2, H*0.3, W/2, H/2, H*0.8);
+  grd.addColorStop(0, 'rgba(0,0,0,0)');
+  grd.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.fillStyle = grd;
+  ctx.fillRect(0, 0, W, H);
+}
+
+const root = document.getElementById('root');
+PALETTES.forEach(p => {
+  const div = document.createElement('div');
+  div.className = 'palette';
+  div.innerHTML = '<h2>' + p.name + '</h2><canvas width="580" height="435"></canvas><div class="desc">' + p.desc + '</div>';
+  const canvas = div.querySelector('canvas');
+  try { renderScene(canvas, p); } catch(e) { canvas.getContext('2d').fillText('Error: ' + e.message, 10, 20); }
+  root.appendChild(div);
+});
+</script>
+</body>
+</html>

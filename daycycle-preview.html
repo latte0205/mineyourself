@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>MineYourself — 日夜循環</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;font-family:'Courier New',monospace;color:#fff;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:20px}
+h1{font-size:14px;margin:6px 0;color:#555;letter-spacing:2px}
+canvas{display:block;border-radius:12px;image-rendering:pixelated;width:780px;height:585px}
+.info{display:flex;gap:24px;margin:10px 0;font-size:13px;align-items:center;flex-wrap:wrap;justify-content:center}
+.time{font-size:28px;font-weight:bold;font-variant-numeric:tabular-nums}
+.phase{font-size:13px;padding:3px 10px;border-radius:16px;background:#222}
+.speed{display:flex;align-items:center;gap:6px}
+.speed label{color:#666}
+.speed input{width:160px;accent-color:#666;height:4px}
+.speed span{color:#888;min-width:30px;text-align:right;font-size:12px}
+.timeline{width:780px;height:4px;border-radius:2px;background:#111;position:relative;overflow:hidden}
+.timeline .fill{height:100%;border-radius:2px;transition:background 1s}
+.labels{display:flex;justify-content:space-between;width:780px;font-size:9px;color:#333;margin-top:2px}
+</style>
+</head>
+<body>
+<h1>⛏ MINEYOURSELF</h1>
+<div class="info">
+  <span class="time" id="timeDisplay">06:00</span>
+  <span class="phase" id="phaseDisplay">🌅 清晨</span>
+  <div class="speed">
+    <label>速度</label>
+    <input type="range" id="speedSlider" min="1" max="300" value="40">
+    <span id="speedLabel">40x</span>
+  </div>
+</div>
+<div class="timeline"><div class="fill" id="timelineFill"></div></div>
+<div class="labels"><span>🌃 霓虹夜</span><span>🌅 日出</span><span>☀️ 正午</span><span>🌇 日落</span><span>🌃 霓虹夜</span></div>
+<canvas id="scene" width="780" height="585"></canvas>
+<script>
+const C=document.getElementById('scene'),X=C.getContext('2d');
+const W=780,H=585,TW=48,TH=24;
+
+// === DAY CYCLE ===
+const CYCLE=[
+  {t:0,l:.12,bg:'#0a0a1e',tr:42,tg:6,tb:20,n:'霓虹夜',i:'🌃'},
+  {t:.22,l:.12,bg:'#0a0a1e',tr:42,tg:6,tb:20},
+  {t:.24,l:.22,bg:'#1a0a05',tr:52,tg:22,tb:4,n:'黎明',i:'🌅'},
+  {t:.28,l:.48,bg:'#352818',tr:42,tg:22,tb:8,n:'日出',i:'☀️'},
+  {t:.33,l:.72,bg:'#385568',tr:8,tg:14,tb:22,n:'早晨',i:'☀️'},
+  {t:.40,l:1,bg:'#486a7a',tr:0,tg:0,tb:0,n:'白天',i:'☀️'},
+  {t:.60,l:1,bg:'#486a7a',tr:0,tg:0,tb:0},
+  {t:.65,l:.72,bg:'#385568',tr:8,tg:14,tb:22,n:'午後',i:'🌤'},
+  {t:.70,l:.48,bg:'#452818',tr:48,tg:22,tb:4,n:'黃昏',i:'🌇'},
+  {t:.76,l:.22,bg:'#220800',tr:52,tg:18,tb:0,n:'日落',i:'🌇'},
+  {t:.80,l:.12,bg:'#0a0a1e',tr:42,tg:6,tb:20,n:'霓虹夜',i:'🌃'},
+  {t:1,l:.12,bg:'#0a0a1e',tr:42,tg:6,tb:20},
+];
+
+function lerp(a,b,t){return a+(b-a)*t}
+function cl(v){return Math.max(0,Math.min(255,v|0))}
+
+function gs(t){
+  t=((t%1)+1)%1;
+  for(let i=0;i<CYCLE.length-1;i++){
+    const a=CYCLE[i],b=CYCLE[i+1];
+    if(t>=a.t&&t<b.t){
+      const p=(t-a.t)/(b.t-a.t);
+      return{l:lerp(a.l,b.l,p),tr:cl(lerp(a.tr,b.tr,p)),tg:cl(lerp(a.tg,b.tg,p)),tb:cl(lerp(a.tb,b.tb,p)),bg:a.bg||b.bg,n:a.n||b.n,i:a.i||b.i};
+    }
+  }
+  return gs(.01);
+}
+
+function ad(r,g,b,s){return{r:cl(r*s.l+s.tr),g:cl(g*s.l+s.tg),b:cl(b*s.l+s.tb)}}
+function bc(c,s){return ad(c[0],c[1],c[2],s)}
+
+// === BLOCKS ===
+const BK={
+  grass:[0x5a,0x8a,0x3a],dirt:[0x8a,0x6a,0x3a],stone:[0x7a,0x7a,0x7a],
+  wood:[0x7a,0x5a,0x2a],log:[0x6a,0x4a,0x1a],leaf:[0x3a,0x8a,0x3a],
+  plank:[0xc8,0xa0,0x60],roof:[0x8a,0x4a,0x2a],snow:[0xe8,0xe8,0xf0],
+  sand:[0xd8,0xc8,0x68],water:[0x30,0x48,0xd8],
+};
+
+function db(cx,cy,c,sz){
+  const hw=sz*TW/64,hh=sz*TH/32,tcy=cy-sz*TH/16;
+  X.fillStyle=`rgb(${c.r|0},${c.g|0},${c.b|0})`;
+  X.beginPath();X.moveTo(cx+hw,cy-hh);X.lineTo(cx+hw,tcy-hh);X.lineTo(cx,tcy);X.lineTo(cx,cy);X.closePath();X.fill();
+  X.fillStyle=`rgb(${c.r*.8|0},${c.g*.8|0},${c.b*.8|0})`;
+  X.beginPath();X.moveTo(cx-hw,cy-hh);X.lineTo(cx-hw,tcy-hh);X.lineTo(cx,tcy);X.lineTo(cx,cy);X.closePath();X.fill();
+  X.fillStyle=`rgb(${Math.min(255,c.r*1.15|0)},${Math.min(255,c.g*1.15|0)},${Math.min(255,c.b*1.15|0)})`;
+  X.beginPath();X.moveTo(cx,tcy-hh);X.lineTo(cx+hw,tcy);X.lineTo(cx,tcy+hh);X.lineTo(cx-hw,tcy);X.closePath();X.fill();
+  X.strokeStyle='rgba(0,0,0,.06)';X.lineWidth=.5;X.stroke();
+}
+
+// === TERRAIN ===
+function hf(x,y){
+  let s=((x*0x9E3779B9^y*0x85EBCA6B)>>>0);
+  s^=s<<13;s^=s>>17;s^=s<<5;
+  return s/4294967296;
+}
+
+function noise(x,y,s){
+  const sx=x/s,sy=y/s,ix=sx|0,iy=sy|0,fx=sx-ix,fy=sy-iy;
+  const sx2=fx*fx*(3-2*fx),sy2=fy*fy*(3-2*fy);
+  const a=hf(ix,iy),b=hf(ix+1,iy),c=hf(ix,iy+1),d=hf(ix+1,iy+1);
+  return a+(b-a)*sx2+(c-a)*sy2+(a-b-c+d)*sx2*sy2;
+}
+
+const MS=18,SZ=17;
+const ht=[];
+for(let x=0;x<MS;x++){ht[x]=[];for(let y=0;y<MS;y++){
+  let v=noise(x,y,6)*.6+noise(x,y,3)*.25+noise(x,y,12)*.15;
+  ht[x][y]=3+Math.floor(v*5);
+}}
+
+// === HOUSES ===
+const houses=[
+  {x:4,z:3,w:3,d:3},
+  {x:12,z:11,w:4,d:3},
+  {x:9,z:5,w:3,d:4},
+];
+
+// === NPCS ===
+const npcs=[
+  {x:5,z:5,o:0,c:[0x33,0x55,0xaa]},
+  {x:10,z:8,o:.5,c:[0xaa,0x44,0x44]},
+  {x:13,z:6,o:1,c:[0x44,0xaa,0x44]},
+  {x:7,z:10,o:1.5,c:[0xaa,0xaa,0x44]},
+  {x:3,z:8,o:2,c:[0x88,0x44,0xaa]},
+];
+
+function drawNPC(px,py,c){
+  const s=[[0,0,1,1,1,1,0,0],[0,1,2,2,2,2,1,0],[0,1,2,2,2,2,1,0],[1,1,2,3,3,2,1,1],[1,2,2,2,2,2,2,1],[1,2,2,2,2,2,2,1],[0,1,2,2,2,2,1,0],[1,1,1,1,1,1,1,1],[1,0,1,0,0,1,0,1],[1,0,1,0,0,1,0,1]];
+  const p=['',`rgb(${c[0]*.6|0},${c[1]*.6|0},${c[2]*.6|0})`,`rgb(${c[0]},${c[1]},${c[2]})`,`rgb(${Math.min(255,c[0]*1.3|0)},${Math.min(255,c[1]*1.3|0)},${Math.min(255,c[2]*1.3|0)})`,'#eebb99','#fff'];
+  for(let r=0;r<10;r++)for(let c2=0;c2<8;c2++){const i=s[r][c2];if(i){X.fillStyle=p[i];X.fillRect(px-8+c2*2,py-20+r*2,2,2);}}
+}
+
+function drawBuilding(x,y,w,d,state){
+  const h=3;
+  const base=ht[x][y];
+  for(let z=0;z<base+h+3;z++){
+    for(let sx=x;sx<x+w;sx++)for(let sz=y;sz<y+d;sz++){
+      const cx=(sx-sz)*TW*SZ/128+W/2;
+      const cy=((sx+sz)*TH*SZ/128)-z*TH*SZ/32+H/2+70;
+
+      if(z===base){
+        db(cx,cy,bc(BK.plank,state),SZ);
+      }else if(z>base&&z<=base+h){
+        const wall=(sx===x||sx===x+w-1||sz===y||sz===y+d-1);
+        if(wall&&!(sx===x+1&&sz===y&&z===base+1)){ // door gap
+          db(cx,cy,bc(BK.wood,state),SZ);
+        }
+      }else if(z>base+h&&z<=base+h+2){
+        const roof=(sx===x||sx===x+w-1||sz===y||sz===y+d-1);
+        if(roof){
+          db(cx,cy,bc(BK.roof,state),SZ);
+        }
+      }
+    }
+  }
+}
+
+// === RENDER ===
+function render(time,frame){
+  const s=gs(time);
+  X.fillStyle=s.bg;X.fillRect(0,0,W,H);
+
+  const ox=W/2,oy=H/2+70;
+
+  // === SCENE ===
+  for(let z=0;z<12;z++){
+    for(let su=0;su<=MS*2;su++){
+      for(let x=0;x<MS;x++){
+        const y=su-x;
+        if(y<0||y>=MS)continue;
+        const sx=ox+(x-y)*TW*SZ/128;
+        const sy=oy+((x+y)*TH*SZ/128)-z*TH*SZ/32;
+
+        // Water at z=1
+        if(z===1&&ht[x][y]>2){
+          db(sx,sy,bc(BK.water,s),SZ);continue;
+        }
+
+        // Ground
+        const h=ht[x][y];
+        if(z<=h){
+          let bk;
+          if(z===h)bk=h>7?BK.snow:h>6?BK.sand:BK.grass;
+          else if(z>=h-2)bk=BK.dirt;
+          else bk=BK.stone;
+          db(sx,sy,bc(bk,s),SZ);
+        }
+
+        // Trees (random)
+        if(z>h&&z<=h+3&&x>=2&&x<MS-2&&y>=2&&y<MS-2){
+          const seed=hf(x+5,y+7);
+          // Check not overlapping houses
+          let inHouse=false;
+          for(const hh of houses){
+            if(x>=hh.x&&x<hh.x+hh.w&&y>=hh.z&&y<hh.z+hh.d)inHouse=true;
+          }
+          if(!inHouse&&seed>.78){
+            db(sx,sy,bc(BK.log,s),SZ);
+          }
+        }
+        if(z>h+3&&z<=h+5&&x>=2&&x<MS-2&&y>=2&&y<MS-2){
+          const seed=hf(x+5,y+7);
+          let inHouse=false;
+          for(const hh of houses){
+            if(Math.abs(x-hh.x)<=2||Math.abs(y-hh.z)<=2)inHouse=true;
+          }
+          if(!inHouse&&seed>.78&&Math.abs(x-(x-1))<=2&&Math.abs(y-(y-1))<=2){
+            // Simple leaves area
+          }
+        }
+      }
+    }
+  }
+
+  // === TREES (scattered) ===
+  const trees=[];
+  for(let x=2;x<MS-2;x++)for(let y=2;y<MS-2;y++){
+    let inHouse=false;
+    for(const hh of houses){
+      if(x>=hh.x-1&&x<hh.x+hh.w+1&&y>=hh.z-1&&y<hh.z+hh.d+1)inHouse=true;
+    }
+    if(!inHouse&&hf(x+5,y+7)>.78&&ht[x][y]>3) trees.push({x,y});
+  }
+
+  for(let z=0;z<12;z++){
+    for(const t of trees){
+      const h=ht[t.x][t.y];
+      if(z>h&&z<=h+3){
+        const cx=ox+(t.x-t.y)*TW*SZ/128;
+        const cy=oy+((t.x+t.y)*TH*SZ/128)-z*TH*SZ/32;
+        db(cx,cy,bc(BK.log,s),SZ);
+      }
+      if(z>h+3&&z<=h+5){
+        const cx=ox+(t.x-t.y)*TW*SZ/128;
+        const cy=oy+((t.x+t.y)*TH*SZ/128)-z*TH*SZ/32;
+        const lz=z-(h+3);
+        const spread=lz===1?1:lz===2?1.5:1;
+        const dx=0,dy=0;
+        // Check proximity
+        if(Math.abs(t.x-(t.x))<=1.5&&Math.abs(t.y-(t.y))<=1.5){
+          db(cx,cy,bc(BK.leaf,s),SZ);
+        }
+      }
+    }
+  }
+
+  // Actually let me simplify the tree rendering
+  // === RENDER TREES (simplified) ===
+  for(let z=0;z<12;z++){
+    for(let su=0;su<=MS*2;su++){
+      for(let x=0;x<MS;x++){
+        const y=su-x;
+        if(y<0||y>=MS)continue;
+        const sx=ox+(x-y)*TW*SZ/128;
+        const sy=oy+((x+y)*TH*SZ/128)-z*TH*SZ/32;
+        const h=ht[x][y];
+        const seed=hf(x+5,y+7);
+
+        let inHouse=false;
+        for(const hh of houses){
+          if(x>=hh.x-1&&x<hh.x+hh.w+1&&y>=hh.z-1&&y<hh.z+hh.d+1)inHouse=true;
+        }
+
+        if(!inHouse&&seed>.78&&h>3){
+          if(z>h&&z<=h+3) db(sx,sy,bc(BK.log,s),SZ);
+        }
+
+        // Leaves
+        for(const t of trees){
+          const diff=Math.abs(x-t.x)+Math.abs(y-t.y);
+          const th=ht[t.x][t.y];
+          if(diff<=2&&z>th+3&&z<=th+5){
+            if(diff===0||(diff<=2&&z===th+4)||(diff<=1&&z===th+5)){
+              db(sx,sy,bc(BK.leaf,s),SZ);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // === HOUSES ===
+  for(let z=0;z<12;z++){
+    for(const hh of houses){
+      const base=ht[hh.x][hh.z];
+      for(let dx=0;dx<hh.w;dx++)for(let dy=0;dy<hh.d;dy++){
+        const sx=ox+((hh.x+dx)-(hh.z+dy))*TW*SZ/128;
+        const sy=oy+(((hh.x+dx)+(hh.z+dy))*TH*SZ/128)-z*TH*SZ/32;
+
+        if(z===base){
+          db(sx,sy,bc(BK.plank,s),SZ);
+        }else if(z>base&&z<=base+3){
+          const isWall=(dx===0||dx===hh.w-1||dy===0||dy===hh.d-1);
+          const isDoor=(dx===1&&dy===0&&z===base+1);
+          if(isWall&&!isDoor) db(sx,sy,bc(BK.wood,s),SZ);
+        }else if(z>base+3&&z<=base+5){
+          if(dx===0||dx===hh.w-1||dy===0||dy===hh.d-1){
+            db(sx,sy,bc(BK.roof,s),SZ);
+          }
+        }
+      }
+    }
+  }
+
+  // === HOUSES: Render floor + walls + roof in correct depth ===
+  for(let z=0;z<12;z++){
+    for(let su=0;su<=MS*2;su++){
+      for(let x=0;x<MS;x++){
+        const y=su-x;
+        if(y<0||y>=MS)continue;
+        const sx=ox+(x-y)*TW*SZ/128;
+        const sy=oy+((x+y)*TH*SZ/128)-z*TH*SZ/32;
+        const h=ht[x][y]||0;
+
+        // Check if this position is part of a house
+        for(const hh of houses){
+          const base=ht[hh.x][hh.z];
+          const dx=x-hh.x,dy=y-hh.z;
+          if(dx>=0&&dx<hh.w&&dy>=0&&dy<hh.d){
+            if(z===base) db(sx,sy,bc(BK.plank,s),SZ);
+            else if(z>base&&z<=base+3){
+              const isWall=(dx===0||dx===hh.w-1||dy===0||dy===hh.d-1);
+              const isDoor=(dx===1&&dy===0&&z===base+1);
+              if(isWall&&!isDoor) db(sx,sy,bc(BK.wood,s),SZ);
+            }else if(z>base+3&&z<=base+5){
+              if(dx===0||dx===hh.w-1||dy===0||dy===hh.d-1) db(sx,sy,bc(BK.roof,s),SZ);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // === NPCS ===
+  for(const n of npcs){
+    const bx=n.x+Math.sin(frame/60+n.o)*.3;
+    const bz=n.z+Math.cos(frame/60+n.o)*.3;
+    const sx=ox+(bx-bz)*TW*SZ/128;
+    const sy=oy+((bx+bz)*TH*SZ/128)-(ht[n.x|0][n.z|0]+1)*TH*SZ/32;
+    drawNPC(sx,sy,n.c);
+  }
+
+  // === PLAYER ===
+  const px=ox+(MS/2-MS/2)*TW*SZ/128;
+  const py=oy+((MS/2+MS/2)*TH*SZ/128)-(ht[MS/2|0][MS/2|0]+1)*TH*SZ/32;
+  const spr=[[0,0,1,1,1,1,0,0],[0,1,2,2,2,2,1,0],[0,1,2,2,2,2,1,0],[1,1,2,4,4,2,1,1],[1,2,2,2,2,2,2,1],[1,2,2,2,2,2,2,1],[0,1,2,2,2,2,1,0],[1,1,1,1,1,1,1,1],[1,0,1,0,0,1,0,1],[1,0,1,0,0,1,0,1]];
+  const pal=['','#1a3366','#3355aa','#5577cc','#eebb99','#fff'];
+  for(let r=0;r<10;r++)for(let c=0;c<8;c++){const i=spr[r][c];if(i){X.fillStyle=pal[i];X.fillRect(px-8+c*2,py-20+r*2,2,2);}}
+
+  // === STARS ===
+  if(s.l<.35){
+    const a=Math.min(1,(.35-s.l)/.25);
+    X.globalAlpha=a;
+    for(let i=0;i<100;i++){
+      X.fillStyle='#fff';
+      const ss=.5+(i%2)*.5;
+      X.fillRect((i*137.5+50)%W,(i*97.3+20)%(H*.5),ss,ss);
+    }
+    X.globalAlpha=1;
+  }
+
+  // === SUN/MOON ===
+  const ang=time*Math.PI*2-Math.PI/2;
+  const su=W/2+Math.cos(ang)*230;
+  const sv=H*.5-Math.sin(ang)*210;
+
+  if(s.l>.4){
+    const al=Math.min(1,(s.l-.15)/.25);
+    const g=X.createRadialGradient(su,sv,2,su,sv,40);
+    g.addColorStop(0,`rgba(255,240,200,${al*.9})`);
+    g.addColorStop(.3,`rgba(255,220,150,${al*.3})`);
+    g.addColorStop(1,'rgba(255,200,100,0)');
+    X.fillStyle=g;X.fillRect(0,0,W,H);
+    X.fillStyle=`rgba(255,240,200,${al*.9})`;
+    X.beginPath();X.arc(su,sv,14,0,Math.PI*2);X.fill();
+  }else{
+    const al=Math.min(1,(.4-s.l)/.2);
+    X.fillStyle=`rgba(220,220,255,${al*.5})`;
+    X.beginPath();X.arc(su,sv,10,0,Math.PI*2);X.fill();
+  }
+
+  // === VIGNETTE ===
+  const g=X.createRadialGradient(W/2,H/2,H*.2,W/2,H/2,H*.8);
+  g.addColorStop(0,'rgba(0,0,0,0)');g.addColorStop(1,'rgba(0,0,0,.35)');
+  X.fillStyle=g;X.fillRect(0,0,W,H);
+
+  // === UI ===
+  const hr=Math.floor(time*24),mn=Math.floor((time*24-hr)*60);
+  document.getElementById('timeDisplay').textContent=String(hr).padStart(2,'0')+':'+String(mn).padStart(2,'0');
+  document.getElementById('phaseDisplay').textContent=((s.i||'')+' '+(s.n||'')).trim();
+  document.getElementById('timelineFill').style.width=(time*100)+'%';
+  if(s.l>.7)document.getElementById('timelineFill').style.background='#4a8aba';
+  else if(s.l>.3)document.getElementById('timelineFill').style.background='#e8a040';
+  else document.getElementById('timelineFill').style.background='#d4306a';
+}
+
+// === LOOP ===
+let gt=.25,sp=40;
+document.getElementById('speedSlider').addEventListener('input',function(){
+  sp=parseInt(this.value);
+  document.getElementById('speedLabel').textContent=sp+'x';
+});
+let fr=0;
+(function loop(){
+  gt=(gt+sp/36000)%1;
+  render(gt,fr++);
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>像素人物 32x32</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#111;font-family:'Courier New',monospace;color:#eee;padding:30px;display:flex;flex-direction:column;align-items:center}
+h1{font-size:18px;color:#888;margin-bottom:20px;letter-spacing:2px}
+.layout{display:flex;gap:40px;flex-wrap:wrap;justify-content:center}
+.panel{background:#1a1a2e;border-radius:12px;padding:20px}
+.panel h2{font-size:13px;color:#666;margin-bottom:12px;text-align:center;text-transform:uppercase;letter-spacing:1px}
+canvas.sprite{image-rendering:pixelated;border:1px solid #333;border-radius:4px;margin-bottom:8px}
+.scene-box{background:#0a0a1e;border-radius:8px;padding:10px;text-align:center}
+.scene-box canvas{image-rendering:pixelated;border-radius:4px}
+.desc{color:#666;font-size:12px;text-align:center;margin-top:20px;max-width:800px;line-height:1.6}
+</style>
+</head>
+<body>
+<h1>像素人物 32x32</h1>
+<div class="layout">
+<div class="panel">
+  <h2>Sprite 放大 (6x)</h2>
+  <canvas id="spriteGrid" width="192" height="192"></canvas>
+</div>
+<div class="panel">
+  <h2>遊戲內大小 (PS=3)</h2>
+  <canvas id="spriteNormal" width="96" height="96"></canvas>
+</div>
+<div class="panel">
+  <h2>Isometric 場景</h2>
+  <div class="scene-box">
+    <canvas id="isoScene" width="320" height="320"></canvas>
+  </div>
+</div>
+</div>
+<div class="desc">
+色票: 1-3=棕髮(暗/中/亮), 4-5=膚色, 6-7=藍色上衣, 8=金色飾邊, 9-a=紅圍巾披風, b=深色褲, c-d=棕靴/手套, e=藍眼, f=白/毛邊
+</div>
+<script>
+var PAL = {
+  hair_dk:'#4a2c14', hair_md:'#7a4a22', hair_lt:'#a8703a',
+  skin_lt:'#f0c896', skin_dk:'#c89060',
+  tunic:'#3a6cd4', tunic_dk:'#27479c', gold:'#e8b44a',
+  scarf:'#cc3a32', scarf_dk:'#8c2420',
+  pants:'#2c2c3e',
+  boot:'#8a5a2e', boot_dk:'#573619',
+  eye:'#2e7fe0', white:'#f5efe2',
+};
+var PALETTE = [
+  0,PAL.hair_dk,PAL.hair_md,PAL.hair_lt,PAL.skin_lt,PAL.skin_dk,
+  PAL.tunic,PAL.tunic_dk,PAL.gold,PAL.scarf,
+  PAL.scarf_dk,PAL.pants,PAL.boot,PAL.boot_dk,PAL.eye,PAL.white,
+];
+var ROWS = [
+  '00000000001100011000110000000000',
+  '00000000012221222212221000000000',
+  '00000000012222222222221000000000',
+  '00000000122333333322221000000000',
+  '00000000123333333322222100000000',
+  '00000001223333333332222100000000',
+  '00000001223333333333222210000000',
+  '00000001222222222222222210000000',
+  '00000001222424424424222210000000',
+  '000000001224ef4444ef422100000000',
+  '000000001224ee4444ee422100000000',
+  '00000000012444454444421000000000',
+  '00000000001444455444410000000000',
+  '0000000000a9999999999a0000000000',
+  '00000000088a99999999a79000000000',
+  '0000000066769a688666679a00000000',
+  '0000000066769a688666679a00000000',
+  '000000006677666886666709a0000000',
+  '00000000ddccccc88ccccc09a0000000',
+  '00000000dd66666776cc6609a0000000',
+  '000000000078888888888709a0000000',
+  '00000000000bbbbbbbbbb009a0000000',
+  '00000000000bbbbbbbbbb00000000000',
+  '00000000000bbbb00bbbb00000000000',
+  '00000000000bbbb00bbbb00000000000',
+  '0000000000fffff00fffff0000000000',
+  '0000000000ccccc00ccccc0000000000',
+  '0000000000ccccd00ccccd0000000000',
+  '0000000000ccccc00ccccc0000000000',
+  '000000000cccccc00cccccc000000000',
+  '000000000dddddd00dddddd000000000',
+  '00000000000000000000000000000000',
+];
+var SPRITE = ROWS.map(function(r){return r.split('').map(function(c){return parseInt(c,16)})});
+var PX = 6;
+
+function draw(canvas, px) {
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#0a0a1e'; ctx.fillRect(0,0,canvas.width,canvas.height);
+  for(var r=0;r<32;r++) for(var c=0;c<32;c++){
+    var i=SPRITE[r][c]; if(!i)continue;
+    ctx.fillStyle=PALETTE[i]; ctx.fillRect(c*px,r*px,px,px);
+  }
+}
+
+function render(){
+  draw(document.getElementById('spriteGrid'),6);
+  draw(document.getElementById('spriteNormal'),3);
+  var c=document.getElementById('isoScene'),ctx=c.getContext('2d');
+  ctx.fillStyle='#0a0a1e'; ctx.fillRect(0,0,320,320);
+  var ox=160,oy=200;
+  for(var s=0;s<=8;s++) for(var x=0;x<=4;x++){
+    var y=s-x; if(y<0||y>4)continue;
+    var sx=ox+(x-y)*18,sy=oy+(x+y)*9;
+    ctx.fillStyle='#5a8a3a';ctx.beginPath();ctx.moveTo(sx,sy-8);ctx.lineTo(sx+16,sy-4);ctx.lineTo(sx,sy);ctx.lineTo(sx-16,sy-4);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#4a7a2a';ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(sx+16,sy-4);ctx.lineTo(sx+16,sy+4);ctx.lineTo(sx,sy+8);ctx.closePath();ctx.fill();
+    ctx.fillStyle='#3a6a1a';ctx.beginPath();ctx.moveTo(sx,sy);ctx.lineTo(sx-16,sy-4);ctx.lineTo(sx-16,sy+4);ctx.lineTo(sx,sy+8);ctx.closePath();ctx.fill();
+  }
+  var px=ox,py=oy+8;
+  for(var r=0;r<32;r++) for(var c=0;c<32;c++){
+    var i=SPRITE[r][c]; if(!i)continue;
+    ctx.fillStyle=PALETTE[i]; ctx.fillRect(px-48+c*3,py-96+r*3,3,3);
+  }
+  ctx.fillStyle='rgba(0,0,0,0.15)';ctx.beginPath();ctx.ellipse(px,py+2,30,8,0,0,Math.PI*2);ctx.fill();
+}
+render();
+</script>
+</body>
+</html>
