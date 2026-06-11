@@ -13,13 +13,18 @@ import { hexToNum, hash2D, isTouch } from './util.js';
 
 export const renderer = { dirty: true };
 
-export function drawBlock(g, x, y, z, def) {
+// 鏤空效果：擋住玩家的前景方塊變半透明（螢幕橢圓範圍）
+const CUTAWAY_RX = 110;
+const CUTAWAY_RY = 90;
+const CUTAWAY_ALPHA = 0.3;
+
+export function drawBlock(g, x, y, z, def, alphaMul = 1) {
   const p = worldToScreen(x, y, z);
   const cx = p.x, cy = p.y;
   const hw = TILE_W / 2;
   const hh = TILE_H / 2;
   const tcy = cy - TILE_H;
-  const alpha = def.transparent ? 0.6 : 1;
+  const alpha = (def.transparent ? 0.6 : 1) * alphaMul;
 
   // 右面（+x 朝向觀察者）
   g.beginFill(hexToNum(def.right), alpha);
@@ -48,6 +53,8 @@ export function drawBlock(g, x, y, z, def) {
   g.closePath();
   g.endFill();
 
+  // 半透明鏤空時省略紋理，保持乾淨
+  if (alphaMul < 1) return;
   const fn = def.pattern && patterns.get(def.pattern);
   if (fn) fn(g, { x, y, z, def, cx, tcy, seed: hash2D(x * 7 + z * 3, y * 13 + z) });
 }
@@ -65,9 +72,14 @@ export function renderWorld() {
   const yMin = Math.max(0, cy - VIEW_RANGE);
   const yMax = Math.min(WORLD_H - 1, cy + VIEW_RANGE);
   const pSum = player.x + player.y;
+  const pScr = worldToScreen(player.x, player.y, player.z);
+  const pcx = pScr.x;
+  const pcy = pScr.y - 28;          // 角色軀幹中心
+  const pz = Math.floor(player.z);
 
   for (let sum = xMin + yMin; sum <= xMax + yMax; sum++) {
-    const g = sum <= pSum + 0.5 ? gBack : gFront;
+    const front = sum > pSum + 0.5;
+    const g = front ? gFront : gBack;
     for (let x = xMin; x <= xMax; x++) {
       const y = sum - x;
       if (y < yMin || y > yMax) continue;
@@ -78,7 +90,16 @@ export function renderWorld() {
         // 對角 (+1,+1,+1) 是視線方向，角落有空隙時仍須繪製以免漏出天空
         if (isOpaque(x + 1, y, z) && isOpaque(x, y + 1, z) && isOpaque(x, y, z + 1) &&
             isOpaque(x + 1, y + 1, z + 1)) continue;
-        drawBlock(g, x, y, z, blockDef(id));
+
+        // 鏤空：玩家身前、螢幕上蓋住角色的方塊變半透明
+        let alphaMul = 1;
+        if (front && z >= pz) {
+          const bp = worldToScreen(x, y, z);
+          const ddx = (bp.x - pcx) / CUTAWAY_RX;
+          const ddy = (bp.y - TILE_H - pcy) / CUTAWAY_RY;
+          if (ddx * ddx + ddy * ddy < 1) alphaMul = CUTAWAY_ALPHA;
+        }
+        drawBlock(g, x, y, z, blockDef(id), alphaMul);
       }
     }
   }
